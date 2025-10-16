@@ -1,0 +1,524 @@
+
+FUNCTION_BLOCK FB64
+
+
+// Bausteinparameter
+VAR_INPUT
+  // Eingangsparameter
+  FIRST_SCAN  : BOOL;           // Erster Programmdurchlauf ist aktiv
+  
+END_VAR
+
+VAR_IN_OUT
+  // Durchgangsparameter
+END_VAR
+
+VAR_OUTPUT
+ // Ausgangsparameter
+
+END_VAR
+
+VAR_TEMP
+  // temporäre  Variablen
+  minrestpiece              : REAL;           // 
+  maxrestpiece              : REAL;           // 
+END_VAR
+
+VAR
+  // statische Variable
+  SBL_BREITE                : DINT;           // Sägebattbreite - sawblade width
+  SBL_VERSATZ               : DINT;           // Sägeblattversatz - 
+  SCHNITTLAENGE             : REAL;           // Schnittlänge - cutting length
+  L_ENDSTUECK               : REAL;           // berechnete Länge Endstück - calculated length of endpiece
+  ANZ_SCHNITTE              : DINT;           // Anzahl der Schnitte pro Stange - amount of cuts per bar
+  ABSTAND_VSZ               : REAL;           // Abstand 0-Kante - Anfang Spannzange bei Schnitt
+  POS_ANSCHNITT             : DINT;           // Position für 1. Schnitt
+  POS_FOLGESCHNITT          : DINT;           // Position für die weiteren Schnitte
+  POS_LETZTES_STK           : DINT;           // Position zum Greifen des letzten Stücks
+  POS_BEGINN                : DINT;           // Position zu Beginn des Ablaufs
+  LENGTH_LAST_PIECE         : REAL;           // length of last piece (good piece, scrap)
+  ABSTAND_LS_VSZ            : DE_REAL;        // Abstand Nachschubzange Vorderkante - Lichtschranke in Nachschubzange
+  ABSTAND_LS_SBL            : DE_REAL;        // Abstand Sägeblatthinterkante - Lichtschranke zum Suchen des Materialanfangs
+  ABSTAND_LS_STOPP_SBL      : DE_REAL;        // Abstand Sägeblatthinterkante - Lichtschranke Material Stopp 
+  SCHNITTPLAN_OK            : BOOL;           // SCHNITTPLAN OK
+  POS_CLAMP_SINGLE_BILLET   : DINT;           // clamping position for single billet for measuring billet length
+  GRUNDPOS_BER              : DINT;           // Berechnete Grundposition - calculated basic position
+  POS_ANSCHNITT_2_NEG       : DINT;           // Position für zweiten Teil des 1. Schnittes
+  NACHGREIFEN_ANSCHNITT     : BOOL;           // NACHGREIFEN bei erstem Schnitt
+  END_STK_OPTIMIEREN        : BOOL;           // optimizing length of end piece 
+  
+  L_FUSSSTK                 : REAL;
+  POS_ENDEERKENNUNG         : DINT;           // Position bei Endeerkennung
+  POS_GUT_ENDE              : DINT;           // Position des Gutstück-Endes
+  POS_CENTER_SCRAP          : DINT;           // Position of clamping tail scrap centre
+  ABSTAND_LS_VSZ_DINT       : DINT;           // Position LS in VSZ
+  POS_TAIL_SCRAP_CUT        : DINT;           // Position for tail scrap cut (if there is tail scrap)
+  ABSTAND_REST_SCHIEBEN     : REAL;           // Abstand Reststück - 0-Kante zum Ausschieben
+  POS_REST_SCHIEBEN         : DINT;           // Position zum Ausschieben eines Reststücks mit der neuen Stange
+  POS_REST_ZURUECK          : DINT;           // Position zum zurückfahren nach Resttransport
+  POS_ANFANGERKENNUNG       : DINT;           // Position bei Anfangerkennung
+  BOLACHA_1                 : REAL;
+
+END_VAR
+
+CONST
+  PI :=3.14159265358979;
+END_CONST
+
+
+OK := TRUE;                                                               // OK-Flag setzen
+
+// Data limit initialize
+IF (FIRST_SCAN = TRUE) THEN
+           
+    ABSTAND_LS_SBL.GW_MIN := 450.0;
+    ABSTAND_LS_SBL.GW_MAX := 550.0;
+    
+    ABSTAND_LS_VSZ.GW_MIN := 750.0;
+    ABSTAND_LS_VSZ.GW_MAX := 800.0;
+    
+    ABSTAND_LS_STOPP_SBL.GW_MIN  := 1100.0;
+    ABSTAND_LS_STOPP_SBL.GW_MAX  := 1300.0;
+    ABSTAND_LS_STOPP_SBL.WERT := 1260.0;
+    
+    ABSTAND_REST_SCHIEBEN := 500.0;
+    
+//    POS_MAX := 3620.0;
+END_IF;
+
+    
+        M_LAST_PEC_TO_LONG := false;
+        M_LAST_PEC_TO_SHORT := false;
+        M_SCRAP_TO_SHORT := false;
+        M_SCRAP := false;
+        
+   
+
+
+  //======================================
+  //       Sägeblattberechnung
+  //======================================
+    SBL_BREITE := REAL_TO_DINT(DB_DATEN.SBL.SCHNITTBREITE.WERT * 1000 );
+
+    SBL_VERSATZ := REAL_TO_DINT((DB_DATEN.SBL.SCHNITTBREITE.WERT - DB_DATEN.SBL.GRUNDBREITE.WERT)/2 *1000);
+  
+  //======================================    
+  //          Länge berechnen
+  //======================================
+ 
+    SCHNITTLAENGE := DB_DATEN.AUFTRAG.STUECKLAENGE.WERT;
+    SCHNITTPLAN_OK:= TRUE;
+    ABSTAND_LS_VSZ_DINT:= REAL_TO_DINT (ABSTAND_LS_VSZ.WERT *1000);
+  
+  //===========================================    
+  //          Grundpositionen berechnen (VFS8)
+  //===========================================
+ 
+    GRUNDPOS_BER := REAL_TO_DINT((SCHNITTLAENGE + ABSTAND_LS_STOPP_SBL.WERT + ABSTAND_VSZ) * 1000.0)+ SBL_BREITE;
+ 
+    IF GRUNDPOS_BER >= "DB_CMD_ANTR".ALLGEM.EVSZ_SW_ES_PLUS THEN
+      GRUNDPOS_BER := "DB_CMD_ANTR".ALLGEM.EVSZ_SW_ES_PLUS - 21000;
+    END_IF;
+   
+   //basic position (VFS 1):
+   
+    "DAT_ANTR_VSZ".VFS[1].SATZ[1].POSITION := REAL_TO_DINT((SCHNITTLAENGE + ABSTAND_LS_STOPP_SBL.WERT + ABSTAND_VSZ) * 1000.0)+ SBL_BREITE;
+ 
+    IF "DAT_ANTR_VSZ".VFS[1].SATZ[1].POSITION >= "DB_CMD_ANTR".ALLGEM.EVSZ_SW_ES_PLUS THEN
+      "DAT_ANTR_VSZ".VFS[1].SATZ[1].POSITION := "DB_CMD_ANTR".ALLGEM.EVSZ_SW_ES_PLUS - 21000;
+    END_IF;
+    
+  //==============================================================
+  // Positionswert für Anschnitt berechnen (Verfahrsatz 10 absolut) von Anfang finden
+  //==============================================================
+ // IF "DB_DATEN".AUFTRAG.ANZ_GUTSTUECKE.WERT <> 1.0 THEN
+     POS_ANSCHNITT := "DB_CMD_ANTR".ALLGEM.MEAS_BILLET_POS - REAL_TO_DINT((SCHNITTLAENGE + ABSTAND_LS_SBL.WERT) * 1000.0) - SBL_VERSATZ; // Gutstück am Anfang  
+  //ELSE
+   //  POS_ANSCHNITT := POS_CENTER_SCRAP + SBL_BREITE;
+ // END_IF;
+                 
+  //=================================================================
+  // Positionswert für Folgeschnitt berechnen (Travelblock 9 + 6 absolut)
+  //=================================================================
+  
+    POS_FOLGESCHNITT := REAL_TO_DINT((SCHNITTLAENGE + ABSTAND_VSZ) * 1000.0) + SBL_BREITE;
+  
+  //======================================================================
+  //  Endeerkennung
+  //======================================================================
+
+    IF "LETZTES_STK" THEN
+    
+        M_LAST_PEC_TO_LONG := false;
+        M_LAST_PEC_TO_SHORT := false;
+        M_SCRAP_TO_SHORT := false;
+        M_SCRAP := false;
+        END_STK_OPTIMIEREN := FALSE;
+   
+        
+    //how long is last piece?
+        IF "DB_DATEN".AUFTRAG.ANZ_GUTSTUECKE.WERT <> 1.0 THEN
+            L_ENDSTUECK := "DB_CMD_ANTR".ALLGEM.ACT_REM_BILLET_END_POS - (DINT_TO_REAL (SBL_BREITE + SBL_VERSATZ) / 1000.0);  // MEssung während Schnitt
+        ELSE
+            L_ENDSTUECK := (DINT_TO_REAL ("DB_CMD_ANTR".ALLGEM.MEAS_BILLET_POS) / 1000) - ABSTAND_LS_SBL.WERT + 40.0;         //Klemmposition für Einzelbillet 25mm
+        END_IF; 
+    //store billet length for LEVEL2:
+        LENGTH_LAST_PIECE := L_ENDSTUECK;
+    
+    //length of theoretic scrap
+        L_FUSSSTK := L_ENDSTUECK - SCHNITTLAENGE - (DINT_TO_REAL (SBL_BREITE) / 1000.0);
+
+        minrestpiece := 80.0;
+        maxrestpiece := 10000.0;
+
+
+
+        IF L_FUSSSTK >= minrestpiece AND L_FUSSSTK <= maxrestpiece THEN// Fuß ganz normal schneiden (gutstück = solllänge)
+            L_FUSSSTK := L_FUSSSTK;
+            M_SCRAP := TRUE;
+            L_ENDSTUECK :=  L_ENDSTUECK - L_FUSSSTK - DB_DATEN.SBL.SCHNITTBREITE.WERT; //für level 2 actual end piece length
+        //gutstück =:gutstücklänge;
+       ELSE
+                IF L_FUSSSTK < minrestpiece THEN   //Optimierung Gutstück  //Optimierung Gutstück Verificar novas condições
+                IF L_FUSSSTK > 0.0 AND L_ENDSTUECK >= 4900.0 THEN //Comprimento do bloco
+                END_STK_OPTIMIEREN := TRUE; 
+                L_FUSSSTK := minrestpiece;   //Move valor minimo da bolacha
+                M_SCRAP := TRUE; 
+                REGRA1 := TRUE; // Verifica qual regra foi utilizada pela lógica
+                L_ENDSTUECK :=  L_ENDSTUECK - L_FUSSSTK - DB_DATEN.SBL.SCHNITTBREITE.WERT; //für level 2 actual end piece length                       
+                ELSE 
+                    IF L_FUSSSTK > 20.0 AND COMPRIMENTO_LUPA >12000.0 THEN //Comprimento da Lupa
+                    END_STK_OPTIMIEREN := TRUE; 
+                    L_FUSSSTK := minrestpiece;   //Move valor minimo da bolacha
+                    M_SCRAP := TRUE; 
+                    REGRA2 := TRUE; // Verifica qual regra foi utilizada pela lógica 
+                    L_ENDSTUECK :=  L_ENDSTUECK - L_FUSSSTK - DB_DATEN.SBL.SCHNITTBREITE.WERT; //für level 2 actual end piece length
+               ELSE
+                    IF L_FUSSSTK > 20.0 AND COMP_TUBO_SM >29000.0 THEN // Comprimento no Size Mill
+                    END_STK_OPTIMIEREN := TRUE; 
+                    L_FUSSSTK := minrestpiece;   //Move valor minimo da bolacha
+                    M_SCRAP := TRUE; 
+                    REGRA3 := TRUE; // Verifica qual regra foi utilizada pela lógica
+                    L_ENDSTUECK :=  L_ENDSTUECK - L_FUSSSTK - DB_DATEN.SBL.SCHNITTBREITE.WERT; //für level 2 actual end piece length
+                ELSE            
+                    IF L_FUSSSTK + "DB_DATEN".AUFTRAG.STKL_TOL_MINUS.WERT < minrestpiece THEN  //keine Optimierung möglich ... Langschrott
+                    //long scrap
+                     M_LAST_PEC_TO_SHORT := TRUE;
+                     REGRA_PEC_CURTA := TRUE; // Verifica qual regra foi utilizada pela lógica
+                ELSE
+                     //Length optimizing.
+                     END_STK_OPTIMIEREN := TRUE; 
+                     L_FUSSSTK := minrestpiece;   //min. Fußschrott
+                     M_SCRAP := TRUE; 
+                     REGRA_OTIMIZAR := TRUE; // Verifica qual regra foi utilizada pela lógica
+                     IF "DB_DATEN".AUFTRAG.ANZ_GUTSTUECKE.WERT = 1 THEN // Optimierung bei Einzelstück
+                     POS_ANSCHNITT := "DB_CMD_ANTR".ALLGEM.MEAS_BILLET_POS + SBL_BREITE - SBL_VERSATZ - REAL_TO_DINT((ABSTAND_LS_SBL.WERT + L_ENDSTUECK - L_FUSSSTK) * 1000.0); // Gutstück am Anfang
+                     END_IF;
+                     L_ENDSTUECK :=  L_ENDSTUECK - L_FUSSSTK - DB_DATEN.SBL.SCHNITTBREITE.WERT; //für level 2 actual end piece length
+                    END_IF;
+                END_IF;
+            END_IF;
+        END_IF;
+    END_IF;
+END_IF;
+
+
+        
+        IF "DB_DATEN".AUFTRAG.ANZ_GUTSTUECKE.WERT > 1 THEN
+            //POSITION FOR TRAVEL BLOCK  17:
+            POS_CENTER_SCRAP := REAL_TO_DINT ((("DB_CMD_ANTR".ALLGEM.ACT_REM_BILLET_END_POS -5.0 )- (L_FUSSSTK / 2.0)) * 1000.0);
+        ELSE
+            //POSITION FOR TRAVEL BLOCK  17:
+            POS_CENTER_SCRAP := REAL_TO_DINT ((L_FUSSSTK / 2.0) * 1000.0);                  //löschen ??????
+        END_IF;
+        
+        //POSITION FOR TRAVEL BLOCK 20:         
+        POS_CLAMP_SINGLE_BILLET := REAL_TO_DINT (("DB_CMD_ANTR".ALLGEM.ACT_REM_BILLET_END_POS - 40.0) * 1000.0);   //Klemmposition für Einzelbillet 25mm
+        //POSITION FOR TRAVEL BLOCK 18:
+        
+        IF END_STK_OPTIMIEREN = TRUE THEN  // optimizing
+            POS_TAIL_SCRAP_CUT := POS_CENTER_SCRAP - REAL_TO_DINT((L_ENDSTUECK + (DINT_TO_REAL (SBL_BREITE) / 1000.0)) * 1000.0);  // L_ENDSTUECK...is the optimzed length
+        ELSE
+            POS_TAIL_SCRAP_CUT := POS_CENTER_SCRAP - REAL_TO_DINT((SCHNITTLAENGE + (DINT_TO_REAL (SBL_BREITE) / 1000.0)) * 1000.0);
+        END_IF;
+        
+
+    ELSE
+    
+        M_LAST_PEC_TO_LONG := false;
+        M_LAST_PEC_TO_SHORT := false;
+        M_SCRAP_TO_SHORT := false;
+        M_SCRAP := false;
+        REGRA1 := false;
+        REGRA2 := false;
+        REGRA3 := false;
+        REGRA_PEC_CURTA:= false;
+        REGRA_OTIMIZAR:= false;
+                
+        LENGTH_LAST_PIECE := 0.0;
+    
+    END_IF;
+  
+   END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK FB64
+
+
+// Bausteinparameter
+VAR_INPUT
+  // Eingangsparameter
+  FIRST_SCAN  : BOOL;           // Erster Programmdurchlauf ist aktiv
+  
+END_VAR
+
+VAR_IN_OUT
+  // Durchgangsparameter
+END_VAR
+
+VAR_OUTPUT
+ // Ausgangsparameter
+
+END_VAR
+
+VAR_TEMP
+  // temporäre  Variablen
+  minrestpiece              : REAL;           // 
+  maxrestpiece              : REAL;           // 
+END_VAR
+
+VAR
+  // statische Variable
+  SBL_BREITE                : DINT;           // Sägebattbreite - sawblade width
+  SBL_VERSATZ               : DINT;           // Sägeblattversatz - 
+  SCHNITTLAENGE             : REAL;           // Schnittlänge - cutting length
+  L_ENDSTUECK               : REAL;           // berechnete Länge Endstück - calculated length of endpiece
+  ANZ_SCHNITTE              : DINT;           // Anzahl der Schnitte pro Stange - amount of cuts per bar
+  ABSTAND_VSZ               : REAL;           // Abstand 0-Kante - Anfang Spannzange bei Schnitt
+  POS_ANSCHNITT             : DINT;           // Position für 1. Schnitt
+  POS_FOLGESCHNITT          : DINT;           // Position für die weiteren Schnitte
+  POS_LETZTES_STK           : DINT;           // Position zum Greifen des letzten Stücks
+  POS_BEGINN                : DINT;           // Position zu Beginn des Ablaufs
+  LENGTH_LAST_PIECE         : REAL;           // length of last piece (good piece, scrap)
+  ABSTAND_LS_VSZ            : DE_REAL;        // Abstand Nachschubzange Vorderkante - Lichtschranke in Nachschubzange
+  ABSTAND_LS_SBL            : DE_REAL;        // Abstand Sägeblatthinterkante - Lichtschranke zum Suchen des Materialanfangs
+  ABSTAND_LS_STOPP_SBL      : DE_REAL;        // Abstand Sägeblatthinterkante - Lichtschranke Material Stopp 
+  SCHNITTPLAN_OK            : BOOL;           // SCHNITTPLAN OK
+  POS_CLAMP_SINGLE_BILLET   : DINT;           // clamping position for single billet for measuring billet length
+  GRUNDPOS_BER              : DINT;           // Berechnete Grundposition - calculated basic position
+  POS_ANSCHNITT_2_NEG       : DINT;           // Position für zweiten Teil des 1. Schnittes
+  NACHGREIFEN_ANSCHNITT     : BOOL;           // NACHGREIFEN bei erstem Schnitt
+  END_STK_OPTIMIEREN        : BOOL;           // optimizing length of end piece 
+
+  L_FUSSSTK                 : REAL;
+  POS_ENDEERKENNUNG         : DINT;           // Position bei Endeerkennung
+  POS_GUT_ENDE              : DINT;           // Position des Gutstück-Endes
+  POS_CENTER_SCRAP          : DINT;           // Position of clamping tail scrap centre
+  ABSTAND_LS_VSZ_DINT       : DINT;           // Position LS in VSZ
+  POS_TAIL_SCRAP_CUT        : DINT;           // Position for tail scrap cut (if there is tail scrap)
+  ABSTAND_REST_SCHIEBEN     : REAL;           // Abstand Reststück - 0-Kante zum Ausschieben
+  POS_REST_SCHIEBEN         : DINT;           // Position zum Ausschieben eines Reststücks mit der neuen Stange
+  POS_REST_ZURUECK          : DINT;           // Position zum zurückfahren nach Resttransport
+  POS_ANFANGERKENNUNG       : DINT;           // Position bei Anfangerkennung
+
+
+END_VAR
+
+CONST
+  PI :=3.14159265358979;
+END_CONST
+
+
+OK := TRUE;                                                               // OK-Flag setzen
+
+// Data limit initialize
+IF (FIRST_SCAN = TRUE) THEN
+           
+    ABSTAND_LS_SBL.GW_MIN := 450.0;
+    ABSTAND_LS_SBL.GW_MAX := 550.0;
+    
+    ABSTAND_LS_VSZ.GW_MIN := 750.0;
+    ABSTAND_LS_VSZ.GW_MAX := 800.0;
+    
+    ABSTAND_LS_STOPP_SBL.GW_MIN  := 1100.0;
+    ABSTAND_LS_STOPP_SBL.GW_MAX  := 1300.0;
+    ABSTAND_LS_STOPP_SBL.WERT := 1260.0;
+    
+    ABSTAND_REST_SCHIEBEN := 500.0;
+    
+//    POS_MAX := 3620.0;
+END_IF;
+
+    
+        M_LAST_PEC_TO_LONG := false;
+        M_LAST_PEC_TO_SHORT := false;
+        M_SCRAP_TO_SHORT := false;
+        M_SCRAP := false;
+        
+   
+
+
+  //======================================
+  //       Sägeblattberechnung
+  //======================================
+    SBL_BREITE := REAL_TO_DINT(DB_DATEN.SBL.SCHNITTBREITE.WERT * 1000 );
+
+    SBL_VERSATZ := REAL_TO_DINT((DB_DATEN.SBL.SCHNITTBREITE.WERT - DB_DATEN.SBL.GRUNDBREITE.WERT)/2 *1000);
+  
+  //======================================    
+  //          Länge berechnen
+  //======================================
+ 
+    SCHNITTLAENGE := DB_DATEN.AUFTRAG.STUECKLAENGE.WERT;
+    SCHNITTPLAN_OK:= TRUE;
+    ABSTAND_LS_VSZ_DINT:= REAL_TO_DINT (ABSTAND_LS_VSZ.WERT *1000);
+  
+  //===========================================    
+  //          Grundpositionen berechnen (VFS8)
+  //===========================================
+ 
+    GRUNDPOS_BER := REAL_TO_DINT((SCHNITTLAENGE + ABSTAND_LS_STOPP_SBL.WERT + ABSTAND_VSZ) * 1000.0)+ SBL_BREITE;
+ 
+    IF GRUNDPOS_BER >= "DB_CMD_ANTR".ALLGEM.EVSZ_SW_ES_PLUS THEN
+      GRUNDPOS_BER := "DB_CMD_ANTR".ALLGEM.EVSZ_SW_ES_PLUS - 21000;
+    END_IF;
+   
+   //basic position (VFS 1):
+   
+    "DAT_ANTR_VSZ".VFS[1].SATZ[1].POSITION := REAL_TO_DINT((SCHNITTLAENGE + ABSTAND_LS_STOPP_SBL.WERT + ABSTAND_VSZ) * 1000.0)+ SBL_BREITE;
+ 
+    IF "DAT_ANTR_VSZ".VFS[1].SATZ[1].POSITION >= "DB_CMD_ANTR".ALLGEM.EVSZ_SW_ES_PLUS THEN
+      "DAT_ANTR_VSZ".VFS[1].SATZ[1].POSITION := "DB_CMD_ANTR".ALLGEM.EVSZ_SW_ES_PLUS - 21000;
+    END_IF;
+    
+  //==============================================================
+  // Positionswert für Anschnitt berechnen (Verfahrsatz 10 absolut) von Anfang finden
+  //==============================================================
+ // IF "DB_DATEN".AUFTRAG.ANZ_GUTSTUECKE.WERT <> 1.0 THEN
+     POS_ANSCHNITT := "DB_CMD_ANTR".ALLGEM.MEAS_BILLET_POS - REAL_TO_DINT((SCHNITTLAENGE + ABSTAND_LS_SBL.WERT) * 1000.0) - SBL_VERSATZ; // Gutstück am Anfang  
+  //ELSE
+   //  POS_ANSCHNITT := POS_CENTER_SCRAP + SBL_BREITE;
+ // END_IF;
+                 
+  //=================================================================
+  // Positionswert für Folgeschnitt berechnen (Travelblock 9 + 6 absolut)
+  //=================================================================
+  
+    POS_FOLGESCHNITT := REAL_TO_DINT((SCHNITTLAENGE + ABSTAND_VSZ) * 1000.0) + SBL_BREITE;
+  
+  //======================================================================
+  //  Endeerkennung
+  //======================================================================
+
+    IF "LETZTES_STK" THEN
+    
+        M_LAST_PEC_TO_LONG := false;
+        M_LAST_PEC_TO_SHORT := false;
+        M_SCRAP_TO_SHORT := false;
+        M_SCRAP := false;
+        END_STK_OPTIMIEREN := FALSE;
+   
+        
+    //how long is last piece?
+        IF "DB_DATEN".AUFTRAG.ANZ_GUTSTUECKE.WERT <> 1.0 THEN
+            L_ENDSTUECK := "DB_CMD_ANTR".ALLGEM.ACT_REM_BILLET_END_POS - (DINT_TO_REAL (SBL_BREITE + SBL_VERSATZ) / 1000.0);  // MEssung während Schnitt
+        ELSE
+            L_ENDSTUECK := (DINT_TO_REAL ("DB_CMD_ANTR".ALLGEM.MEAS_BILLET_POS) / 1000) - ABSTAND_LS_SBL.WERT + 40.0;         //Klemmposition für Einzelbillet 25mm
+        END_IF; 
+    //store billet length for LEVEL2:
+        LENGTH_LAST_PIECE := L_ENDSTUECK;
+    
+    //length of theoretic scrap
+        L_FUSSSTK := L_ENDSTUECK - SCHNITTLAENGE - (DINT_TO_REAL (SBL_BREITE) / 1000.0);
+
+        minrestpiece := 80.0;
+        maxrestpiece := 10000.0;
+
+
+
+        IF L_FUSSSTK >= minrestpiece AND L_FUSSSTK <= maxrestpiece THEN// Fuß ganz normal schneiden (gutstück = solllänge)
+            L_FUSSSTK := L_FUSSSTK;
+            M_SCRAP := TRUE;
+            L_ENDSTUECK :=  L_ENDSTUECK - L_FUSSSTK - DB_DATEN.SBL.SCHNITTBREITE.WERT; //für level 2 actual end piece length
+        //gutstück =:gutstücklänge;
+       ELSE
+                IF L_FUSSSTK < minrestpiece THEN   //Optimierung Gutstück  //Optimierung Gutstück Verificar novas condições
+                IF L_FUSSSTK > 20.0 AND "DB_DATEN".AUFTRAG.STUECKLAENGE.WERT >4800.0 THEN //Comprimento do bloco
+                END_STK_OPTIMIEREN := TRUE; 
+                L_FUSSSTK := minrestpiece;   //Move valor minimo da bolacha
+                M_SCRAP := TRUE; 
+                REGRA1 := TRUE; // Verifica qual regra foi utilizada pela lógica
+                L_ENDSTUECK :=  L_ENDSTUECK - L_FUSSSTK - DB_DATEN.SBL.SCHNITTBREITE.WERT; //für level 2 actual end piece length                       
+                ELSE 
+                    IF L_FUSSSTK > 20.0 AND COMPRIMENTO_LUPA >12000.0 THEN //Comprimento da Lupa
+                    END_STK_OPTIMIEREN := TRUE; 
+                    L_FUSSSTK := minrestpiece;   //Move valor minimo da bolacha
+                    M_SCRAP := TRUE; 
+                    REGRA2 := TRUE; // Verifica qual regra foi utilizada pela lógica 
+                    L_ENDSTUECK :=  L_ENDSTUECK - L_FUSSSTK - DB_DATEN.SBL.SCHNITTBREITE.WERT; //für level 2 actual end piece length
+               ELSE
+                    IF L_FUSSSTK > 20.0 AND COMP_TUBO_SM >29000.0 THEN // Comprimento no Size Mill
+                    END_STK_OPTIMIEREN := TRUE; 
+                    L_FUSSSTK := minrestpiece;   //Move valor minimo da bolacha
+                    M_SCRAP := TRUE; 
+                    REGRA3 := TRUE; // Verifica qual regra foi utilizada pela lógica
+                    L_ENDSTUECK :=  L_ENDSTUECK - L_FUSSSTK - DB_DATEN.SBL.SCHNITTBREITE.WERT; //für level 2 actual end piece length
+                ELSE            
+                    IF L_FUSSSTK + "DB_DATEN".AUFTRAG.STKL_TOL_MINUS.WERT < minrestpiece THEN  //keine Optimierung möglich ... Langschrott
+                    //long scrap
+                     M_LAST_PEC_TO_SHORT := TRUE;
+                     REGRA_PEC_CURTA := TRUE; // Verifica qual regra foi utilizada pela lógica
+                ELSE
+                     //Length optimizing.
+                     END_STK_OPTIMIEREN := TRUE; 
+                     L_FUSSSTK := minrestpiece;   //min. Fußschrott
+                     M_SCRAP := TRUE; 
+                     REGRA_OTIMIZAR := TRUE; // Verifica qual regra foi utilizada pela lógica
+                     IF "DB_DATEN".AUFTRAG.ANZ_GUTSTUECKE.WERT = 1 THEN // Optimierung bei Einzelstück
+                     POS_ANSCHNITT := "DB_CMD_ANTR".ALLGEM.MEAS_BILLET_POS + SBL_BREITE - SBL_VERSATZ - REAL_TO_DINT((ABSTAND_LS_SBL.WERT + L_ENDSTUECK - L_FUSSSTK) * 1000.0); // Gutstück am Anfang
+                     END_IF;
+                     L_ENDSTUECK :=  L_ENDSTUECK - L_FUSSSTK - DB_DATEN.SBL.SCHNITTBREITE.WERT; //für level 2 actual end piece length
+                    END_IF;
+                END_IF;
+            END_IF;
+        END_IF;
+    END_IF;
+END_IF;
+
+
+        
+        IF "DB_DATEN".AUFTRAG.ANZ_GUTSTUECKE.WERT > 1 THEN
+            //POSITION FOR TRAVEL BLOCK  17:
+            POS_CENTER_SCRAP := REAL_TO_DINT ((("DB_CMD_ANTR".ALLGEM.ACT_REM_BILLET_END_POS -5.0 )- (L_FUSSSTK / 2.0)) * 1000.0);
+        ELSE
+            //POSITION FOR TRAVEL BLOCK  17:
+            POS_CENTER_SCRAP := REAL_TO_DINT ((L_FUSSSTK / 2.0) * 1000.0);                  //löschen ??????
+        END_IF;
+        
+        //POSITION FOR TRAVEL BLOCK 20:         
+        POS_CLAMP_SINGLE_BILLET := REAL_TO_DINT (("DB_CMD_ANTR".ALLGEM.ACT_REM_BILLET_END_POS - 40.0) * 1000.0);   //Klemmposition für Einzelbillet 25mm
+        //POSITION FOR TRAVEL BLOCK 18:
+        
+        IF END_STK_OPTIMIEREN = TRUE THEN  // optimizing
+            POS_TAIL_SCRAP_CUT := POS_CENTER_SCRAP - REAL_TO_DINT((L_ENDSTUECK + (DINT_TO_REAL (SBL_BREITE) / 1000.0)) * 1000.0);  // L_ENDSTUECK...is the optimzed length
+        ELSE
+            POS_TAIL_SCRAP_CUT := POS_CENTER_SCRAP - REAL_TO_DINT((SCHNITTLAENGE + (DINT_TO_REAL (SBL_BREITE) / 1000.0)) * 1000.0);
+        END_IF;
+        
+
+    ELSE
+    
+        M_LAST_PEC_TO_LONG := false;
+        M_LAST_PEC_TO_SHORT := false;
+        M_SCRAP_TO_SHORT := false;
+        M_SCRAP := false;
+        REGRA1 := false;
+        REGRA2 := false;
+        REGRA3 := false;
+        REGRA_PEC_CURTA:= false;
+        REGRA_OTIMIZAR:= false;
+                
+        LENGTH_LAST_PIECE := 0.0;
+    
+    END_IF;
+  
+   END_FUNCTION_BLOCK
