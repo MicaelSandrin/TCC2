@@ -8,5 +8,3 @@ Este repositório contém a documentação técnica e os arquivos complementares
 
 - `docs/`: Relatório final, diagramas e prints da IHM.
 - `code/`: Bloco de lógica principal (FB64) e regras operacionais.
--
--
