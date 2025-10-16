@@ -1,21 +1,34 @@
-# TCC2
-# Sistema de Corte Automatizado com Regras Operacionais
+# 🪚 Sistema de Corte Automatizado com Regras Operacionais – TCC II
 
-Este repositório contém o código-fonte e os materiais desenvolvidos para o projeto de TCC II do curso técnico em Automação Industrial. O objetivo do projeto é automatizar o processo de corte de barras metálicas, aplicando regras operacionais que otimizam o aproveitamento de material e reduzem perdas.
+Este repositório contém a documentação técnica e os arquivos complementares do projeto de TCC II desenvolvido por Micael Sandrin. O sistema simula um processo de corte automatizado com regras operacionais implementadas em linguagem SCL no ambiente Siemens Step 7.
 
-## 📌 Objetivo
+---
 
-Desenvolver uma lógica de corte inteligente que:
-- Calcule o comprimento ideal de corte.
-- Identifique automaticamente peças reaproveitáveis ou sucata.
-- Aplique regras específicas conforme limites operacionais.
-- Exiba os resultados em uma interface simulada.
+## 📂 Conteúdo do Repositório
 
-## ⚙️ Tecnologias Utilizadas
+- `docs/`: Relatório final, diagramas e prints da IHM.
+- `code/`: Bloco de lógica principal (FB64) e regras operacionais.
+- `video/`: Vídeo de defesa com demonstração da aplicação.
+- `links/`: Link para a máquina virtual completa no OneDrive.
 
-- **Step 7** – Programação em linguagem SCL.
-- **WinCC Flexible** – Interface homem-máquina (IHM) simulada.
-- **S7-PLCSim** – Simulação do CLP Siemens S7-400.
-- **GitHub** – Repositório público para documentação e código.
+---
 
-## 📁 Estrutura do Repositório
+## 🧠 Sobre a Simulação
+
+O projeto contempla três serras no sistema de corte. A lógica de simulação foi implementada apenas para a **Serra 1**, com o objetivo de validar o funcionamento das regras operacionais e da interface.
+
+---
+
+## 📹 Avaliação da Aplicação
+
+A aplicação será avaliada exclusivamente por meio do vídeo de defesa, conforme orientação da banca. A máquina virtual está disponível para consulta opcional.
+
+🔗 [Acesse a máquina virtual com o ambiente completo](https://onedrive.live.com/SEU-LINK-AQUI)
+
+---
+
+## 👨‍💻 Autor
+
+**Micael Sandrin**  
+Email: [seu-email-aqui]  
+GitHub: [github.com/MicaelSandrin](https://github.com/MicaelSandrin)
